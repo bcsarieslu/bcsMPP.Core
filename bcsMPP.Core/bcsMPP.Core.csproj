@@ -35,7 +35,7 @@
   <ItemGroup>
     <Reference Include="bwInnovatorCore, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\..\..\..\Aras功能包\AP-00007-ActionPack-V6\ActionPackV6\Setup\CoreTree\ActionPackV6\Innovator\Server\bin\bwInnovatorCore.dll</HintPath>
+      <HintPath>bin\Debug\bwInnovatorCore.dll</HintPath>
     </Reference>
     <Reference Include="IOM, Version=11.0.0.6920, Culture=neutral, PublicKeyToken=524d880b05474146, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>

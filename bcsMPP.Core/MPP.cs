@@ -160,12 +160,19 @@ namespace bcsMPP.Core
                         itemNode.ParentNode.RemoveChild(itemNode);
                     }
                 }
+
+                //Modify by BCS Tengz 2021/6/23 MPP与PQD联动 读取PQD数据
+                if (CheckIsUsedPQD())
+                {
+                    foundProcessPlans = getRelationPQDData(foundProcessPlans);
+                }
+                //End Modify
             }
 
             return foundProcessPlans;
         }
 
-        static Item getProcessPlanStructure(Innovator innovatorInstance, string processPlanIds, bool withDetails, string langCode, string customPartProperties, string location,List<string> propertys)
+        static Item getProcessPlanStructure(Innovator innovatorInstance, string processPlanIds, bool withDetails, string langCode, string customPartProperties, string location, List<string> propertys)
         {
             if (!String.IsNullOrEmpty(processPlanIds))
             {
@@ -191,7 +198,7 @@ namespace bcsMPP.Core
 										<Item type='mpp_StepImageReference' select='reference_id,related_id(src)'/>
 									</Relationships>
 								</Item>"
-                                    : "<Item type='mpp_Step' select='bcs_location,keyed_name,name,sort_order" + propertys[1]+"'>" + bcs_location + "</Item>") +
+                                    : "<Item type='mpp_Step' select='bcs_location,keyed_name,name,sort_order" + propertys[1] + "'>" + bcs_location + "</Item>") +
                                     @"<Item type='mpp_OperationConsumedPart' select='bcs_location,quantity,related_id(" + customPartProperties + @",classification,config_id)'>'" + bcs_location + @"</Item>
 								<Item type='mpp_OperationResource' select='bcs_location,related_id(keyed_name,name,item_number)'>" + bcs_location + @"</Item>
 								<Item type='mpp_OperationSkill' select='bcs_location,related_id(keyed_name,name,item_number)'>" + bcs_location + @"</Item>
@@ -211,6 +218,200 @@ namespace bcsMPP.Core
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// 读取关联PQD数据
+        /// </summary>
+        /// <param name="foundProcessPlans"></param>
+        /// <returns></returns>
+        private Item getRelationPQDData(Item foundProcessPlans)
+        {
+            int _count = foundProcessPlans.getItemCount();
+            string _aml = "     <AML>" +
+                          "       <Item type='Process Quality Document' action='get' id='{0}' select='id' >" +
+                          "         <Relationships>" +
+                          "            <Item type='PQD Operation' action='get' select='reference_id, parent_reference_id, sort_order, bound_item_id, bound_item_config_id, tracking_mode, resolution_mode' />" +
+                          "            <Item type='PQD EMT' action='get' select='reference_id, parent_reference_id, sort_order, bound_item_id, bound_item_config_id, tracking_mode, resolution_mode' />" +
+                          "            <Item type='PQD Tool' action='get' select='reference_id, parent_reference_id, sort_order, bound_item_id, bound_item_config_id, tracking_mode, resolution_mode' />" +
+                          "         </Relationships>" +
+                          "       </Item>" +
+                          "     </AML>";
+            Item requestItem = innovator.newItem("Method", "cmf_GetItemsAndOptimizeResult");
+            for (int i = 0; i < _count; i++)
+            {
+                Item mppItem = foundProcessPlans.getItemByIndex(i);
+                Item pqdItem = innovator.newItem("Process Quality Document", "get");
+                pqdItem.setProperty("process_plan_id", mppItem.getID());
+                pqdItem.setAttribute("select", "id");
+                pqdItem = pqdItem.apply();
+                if (pqdItem.getItemCount() != 1)
+                {
+                    continue;
+                }
+                requestItem.setProperty("amlGetQuery", string.Format(_aml, pqdItem.getID()));
+                requestItem = requestItem.apply();
+                if (requestItem.isError() || requestItem.getItemCount() != 1)
+                {
+                    continue;
+                }
+
+                XmlNode cmfPQDdata = requestItem.node.SelectSingleNode("Rels_someSaltGFJHpiwy3");
+                if (cmfPQDdata == null)
+                {
+                    continue;
+                }
+
+                Item operationItems = mppItem.getRelationships("mpp_Operation");
+                int _opCount = operationItems.getItemCount();
+                for (int j = 0; j < _opCount; j++)
+                {
+                    Item operationItem = operationItems.getItemByIndex(j);
+                    XmlNode cmfOPItem = cmfPQDdata.SelectSingleNode($"G[@e='PQD Operation']/I[@f='{operationItem.getID()}']");
+                    if (cmfOPItem == null)
+                    {
+                        continue;
+                    }
+
+                    //处理检验设备
+                    List<Item> toolItems = new List<Item>();
+                    XmlNodeList cmfToolItems = cmfPQDdata.SelectNodes($"G[@e='PQD Tool']/I[@c='{cmfOPItem.Attributes["a"].Value}']");
+                    foreach (XmlNode cmfToolItem in cmfToolItems)
+                    {
+                        Item toolItem = innovator.getItemById("mpp_Resource", cmfToolItem.Attributes["f"].Value);
+                        if (toolItem.isError())
+                        {
+                            continue;
+                        }
+                        Item testToolItem = innovator.newItem("mpp_OperationTest");
+                        testToolItem.setRelatedItem(toolItem);
+                        testToolItem.setID(cmfToolItem.Attributes["d"].Value);
+                        toolItems.Add(testToolItem);
+                    }
+
+                    //处理检验项目
+                    XmlNodeList cmfTestItems = cmfPQDdata.SelectNodes($"G[@e='PQD EMT']/I[@c='{cmfOPItem.Attributes["a"].Value}']");
+                    foreach (XmlNode cmfTestItem in cmfTestItems)
+                    {
+                        Item testItem = innovator.getItemById("mpp_Test", cmfTestItem.Attributes["f"].Value);
+                        if (testItem.isError())
+                        {
+                            continue;
+                        }
+
+                        Item testRelItem = operationItem.createRelationship("mpp_OperationTest", "skip");
+                        testRelItem.setRelatedItem(testItem);
+                        //testRelItem.setNewID();
+                        testRelItem.setID(cmfTestItem.Attributes["d"].Value);
+
+                        foreach (Item toolItem in toolItems)
+                        {
+                            //因MPP程式逻辑原因此处关系要加在mpp_OperationTest下而不是mpp_Test下
+                            testRelItem.addRelationship(toolItem);
+                        }
+                    }
+                }
+            }
+
+            return foundProcessPlans;
+        }
+
+        private Item getRelationPQDData(string mppId, Item operationItems,ref Dictionary<string,string> itemTypeIcons)
+        {
+            string _aml = "     <AML>" +
+                          "       <Item type='Process Quality Document' action='get' id='{0}' select='id' >" +
+                          "         <Relationships>" +
+                          "            <Item type='PQD Operation' action='get' select='reference_id, parent_reference_id, sort_order, bound_item_id, bound_item_config_id, tracking_mode, resolution_mode' />" +
+                          "            <Item type='PQD EMT' action='get' select='reference_id, parent_reference_id, sort_order, bound_item_id, bound_item_config_id, tracking_mode, resolution_mode' />" +
+                          "            <Item type='PQD Tool' action='get' select='reference_id, parent_reference_id, sort_order, bound_item_id, bound_item_config_id, tracking_mode, resolution_mode' />" +
+                          "         </Relationships>" +
+                          "       </Item>" +
+                          "     </AML>";
+            Item requestItem = innovator.newItem("Method", "cmf_GetItemsAndOptimizeResult");
+            Item pqdItem = innovator.newItem("Process Quality Document", "get");
+            pqdItem.setProperty("process_plan_id", mppId);
+            pqdItem.setAttribute("select", "id");
+            pqdItem = pqdItem.apply();
+            if (pqdItem.getItemCount() != 1)
+            {
+                return operationItems;
+            }
+            requestItem.setProperty("amlGetQuery", string.Format(_aml, pqdItem.getID()));
+            requestItem = requestItem.apply();
+            if (requestItem.isError() || requestItem.getItemCount() != 1)
+            {
+                return operationItems;
+            }
+
+            XmlNode cmfPQDdata = requestItem.node.SelectSingleNode("Rels_someSaltGFJHpiwy3");
+            if (cmfPQDdata == null)
+            {
+                return operationItems;
+            }
+
+            int _opCount = operationItems.getItemCount();
+            for (int j = 0; j < _opCount; j++)
+            {
+                Item operationItem = operationItems.getItemByIndex(j);
+                XmlNode cmfOPItem = cmfPQDdata.SelectSingleNode($"G[@e='PQD Operation']/I[@f='{operationItem.getID()}']");
+                if (cmfOPItem == null)
+                {
+                    continue;
+                }
+
+                //处理检验设备
+                List<Item> toolItems = new List<Item>();
+                XmlNodeList cmfToolItems = cmfPQDdata.SelectNodes($"G[@e='PQD Tool']/I[@c='{cmfOPItem.Attributes["a"].Value}']");
+                foreach (XmlNode cmfToolItem in cmfToolItems)
+                {
+                    Item toolItem = innovator.getItemById("mpp_Resource", cmfToolItem.Attributes["f"].Value);
+                    if (toolItem.isError())
+                    {
+                        continue;
+                    }
+                    Item ToolRelItem = innovator.newItem("mpp_TestTool");
+                    ToolRelItem.setRelatedItem(toolItem);
+                    //ToolRelItem.setNewID();
+                    ToolRelItem.setID(cmfToolItem.Attributes["d"].Value);
+                    toolItems.Add(ToolRelItem);
+
+                    string itemTypeName = toolItem.getType();
+                    if (!itemTypeIcons.ContainsKey(itemTypeName))
+                    {
+                        Item itemType = innovator.newItem("ItemType", "get");
+                        itemType.setProperty("name", itemTypeName);
+                        itemType.setAttribute("select", "");
+                        itemType = itemType.apply();
+                        itemTypeIcons.Add(itemTypeName, itemType.getProperty("open_icon", "../images/ItemType.svg"));
+                    }
+                }
+
+                //处理检验项目
+                XmlNodeList cmfTestItems = cmfPQDdata.SelectNodes($"G[@e='PQD EMT']/I[@c='{cmfOPItem.Attributes["a"].Value}']");
+                foreach (XmlNode cmfTestItem in cmfTestItems)
+                {
+                    Item testItem = innovator.getItemById("mpp_Test", cmfTestItem.Attributes["f"].Value);
+                    if (testItem.isError())
+                    {
+                        continue;
+                    }
+
+                    foreach (Item toolItem in toolItems)
+                    {
+                        testItem.addRelationship(toolItem);
+                    }
+
+                    Item testRelItem = operationItem.createRelationship("mpp_OperationTest", "skip");
+                    testRelItem.setRelatedItem(testItem);
+                    //testRelItem.setNewID();
+                    testRelItem.setID(cmfTestItem.Attributes["d"].Value);
+
+                    
+                }
+            }
+
+
+            return operationItems;
         }
 
         /// <summary>
@@ -268,6 +469,9 @@ namespace bcsMPP.Core
                 return Cinn.newError(CstrErrMessage);
             }
 
+            System.Web.Script.Serialization.JavaScriptSerializer JSONSerializer = new System.Web.Script.Serialization.JavaScriptSerializer { MaxJsonLength = int.MaxValue };
+            bool isUsedPQD = CheckIsUsedPQD();
+
             string plan_id = mpp.getProperty("processplan_id");
             string plan_number = mpp.getProperty("processplan_number");
             string plan_name = mpp.getProperty("processplan_name");
@@ -275,7 +479,6 @@ namespace bcsMPP.Core
 
             Innovator inn = mpp.getInnovator();
             int uniqueId = 0;
-            // System.Diagnostics.Debugger.Break();
 
             StringBuilder gridStyle = new StringBuilder();
             gridStyle.Append("<?xml version='1.0' encoding='utf-8'?>");
@@ -325,13 +528,18 @@ namespace bcsMPP.Core
             rootPlan.children = new List<ItemJson>();
 
             string bcs_location = !string.IsNullOrEmpty(location_id) ? "<OR><bcs_location>" + location_id + "</bcs_location><bcs_location condition='is null'></bcs_location></OR>" : string.Empty;
-            string aml = "<AML><Item type='mpp_operation' action='get' select='sort_order,name,bcs_hours'><source_id>" + plan_id + "</source_id>" +
-                bcs_location +
-                "<Relationships><Item type='mpp_OperationTest' select='related_id(item_number,name)' >" +
-                bcs_location +
-                "</Item></Relationships>" +
+            string aml = $"<AML><Item type='mpp_operation' action='get' select='sort_order,name,bcs_hours'><source_id>{plan_id}</source_id>{bcs_location}" +
+                (!isUsedPQD ? $"<Relationships><Item type='mpp_OperationTest' select='related_id(item_number,name)' >{bcs_location}</Item></Relationships>" : "") +
+                $"<Relationships><Item type='mpp_OperationTest' select='related_id(item_number,name)' >{bcs_location}</Item></Relationships>"+
                 "</Item></AML>";
             Item operations = inn.applyAML(aml);
+
+            Dictionary<string, string> itemTypeIcons = new Dictionary<string, string>();
+            if (isUsedPQD)
+            {
+                operations = getRelationPQDData(plan_id, operations,ref itemTypeIcons);
+            }
+
             for (int i = 0; i < operations.getItemCount(); i++)
             {
                 Item operation = operations.getItemByIndex(i);
@@ -355,10 +563,11 @@ namespace bcsMPP.Core
                 };
 
                 operationItem.children = new List<ItemJson>();
-                Item operationTests = operation.getRelationships();
+                Item operationTests = operation.getRelationships("mpp_OperationTest");
                 for (int j = 0; j < operationTests.getItemCount(); j++)
                 {
-                    Item test = operationTests.getItemByIndex(j).getRelatedItem();
+                    Item operationTest = operationTests.getItemByIndex(j);
+                    Item test = operationTest.getRelatedItem();
                     ItemJson operationTestItem = new ItemJson();
                     operationTestItem.uniqueId = uniqueId++;
                     operationTestItem.expanded = "true";
@@ -367,7 +576,7 @@ namespace bcsMPP.Core
 
                     ItemUserdataJson operationTestItemUserdata = new ItemUserdataJson();
                     operationTestItemUserdata.id = test.getID();
-                    operationTestItemUserdata.ocid = operationTests.getItemByIndex(j).getID();
+                    operationTestItemUserdata.ocid = operationTest.getID();
                     operationTestItemUserdata.oid = operation.getID();
                     operationTestItem.userdata = operationTestItemUserdata;
                     operationTestItem.fields = new List<object>
@@ -376,6 +585,39 @@ namespace bcsMPP.Core
                         Escape(test.getProperty("name", "")),
                         ""
                     };
+
+                    if (isUsedPQD)
+                    {
+                        operationTestItem.children = new List<ItemJson>();
+                        Item testToolItems = test.getRelationships("mpp_TestTool");
+                        int _toolCount = testToolItems.getItemCount();
+                        for (int m = 0; m < _toolCount; m++)
+                        {
+                            Item testToolItem = testToolItems.getItemByIndex(m);
+                            Item toolItem = testToolItem.getRelatedItem();
+                            string itemTypeIcon = itemTypeIcons[toolItem.getType()];
+
+                            ItemJson toolItemJson = new ItemJson();
+                            toolItemJson.uniqueId = uniqueId++;
+                            toolItemJson.expanded = "false";
+                            toolItemJson.icon = itemTypeIcon;
+                            toolItemJson.expandedIcon = itemTypeIcon;
+
+                            ItemUserdataJson toolUserDataJson = new ItemUserdataJson();
+                            toolUserDataJson.id = toolItem.getID();
+                            toolUserDataJson.ocid = testToolItem.getID();
+                            toolUserDataJson.oid = test.getID();
+                            toolItemJson.userdata = toolUserDataJson;
+                            toolItemJson.fields = new List<object>
+                            {
+                                Escape(toolItem.getProperty("item_number", "")),
+                                Escape(toolItem.getProperty("name", "")),
+                                ""
+                            };
+                            operationTestItem.children.Add(toolItemJson);
+                        }
+                    }
+
                     operationItem.children.Add(operationTestItem);
                 }
 
@@ -388,8 +630,6 @@ namespace bcsMPP.Core
             result.setProperty("uniqueid", uniqueId.ToString());
             return result;
         }
-
-        public System.Web.Script.Serialization.JavaScriptSerializer JSONSerializer = new System.Web.Script.Serialization.JavaScriptSerializer { MaxJsonLength = int.MaxValue };
 
         class ItemJson
         {
@@ -665,6 +905,14 @@ namespace bcsMPP.Core
             return Meaning;
         }
 
+        /// <summary>
+        /// 检查是否有使用PQD联动
+        /// </summary>
+        /// <returns>true:有使用 false:未使用</returns>
+        private bool CheckIsUsedPQD()
+        {
+            return !innovator.applyMethod("bcs_MPP_CheckPQDIsUsed", "").isError();
+        }
 
         #endregion
     }
