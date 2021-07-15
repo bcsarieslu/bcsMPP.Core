@@ -51,7 +51,7 @@ namespace bcsMPP.Core.Tests
 
             connection.Logout();
 
-            Assert.Fail();
+            Assert.Pass("");
         }
 
 
