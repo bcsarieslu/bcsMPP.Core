@@ -18,6 +18,7 @@ namespace bcsMPP.Core
         protected CInnovator.bwGeneric CbwGeneric = new CInnovator.bwGeneric(); //Modify by kenny 2019/04/11
         protected CGeneric.Common CoCommon;//Modify by kenny 2019/04/11
         private string CstrErrMessage = "";
+        private dynamic bcsCCO;
 
         protected Innovator innovator { get; private set; }
         protected string LangCode { get; private set; }
@@ -39,6 +40,41 @@ namespace bcsMPP.Core
             Cinn = getInnovator;
             CbwGeneric.bwIOMInnovator = Cinn;
             CoCommon = new CGeneric.Common();
+
+            //Modify by kenny 2016/04/01 ------
+            string LanCode = Cinn.getI18NSessionContext().GetLanguageCode();
+            if (LanCode == null) LanCode = "";
+            LangCode = LanCode;
+            LanCode = LanCode.ToLower();
+
+            if ((LanCode.IndexOf("zt") > -1) || (LanCode.IndexOf("tw") > -1))
+            {
+                LanCode = "zh-tw";
+            }
+            else if ((LanCode.IndexOf("zc") > -1) || (LanCode.IndexOf("cn") > -1))
+            {
+                LanCode = "zh-cn";
+            }
+            else if ((LanCode.IndexOf("kr") > -1) || (LanCode.IndexOf("ko") > -1))
+            {
+                LanCode = "ko-kr";
+            }
+            else
+            {
+                LanCode = "en";
+            }
+            CoCommon.SetLanguage = LanCode;
+            CbwGeneric.SetLanguage = LanCode;
+            //----------------------------------
+        }
+
+        public MPP(Innovator getInnovator, dynamic CCO)
+        {
+            innovator = getInnovator;
+            Cinn = getInnovator;
+            CbwGeneric.bwIOMInnovator = Cinn;
+            CoCommon = new CGeneric.Common();
+            bcsCCO = CCO;
 
             //Modify by kenny 2016/04/01 ------
             string LanCode = Cinn.getI18NSessionContext().GetLanguageCode();
@@ -387,6 +423,450 @@ namespace bcsMPP.Core
             result.setProperty("mbomDataJson", JSONSerializer.Serialize(rootPlan));
             result.setProperty("uniqueid", uniqueId.ToString());
             return result;
+        }
+
+        public Item PBOM2MBOM(Item controlItem)
+        {
+            if (CheckLicense() == false)
+            {
+                return Cinn.newError(CstrErrMessage);
+            }
+
+            string mpp_id = controlItem.getID();
+            string location_id = controlItem.getProperty("location");
+            Item rowItems = controlItem.getPropertyItem("rowitem");
+            CstrErrMessage = controlItem.getProperty("errorString", "检测到有错误,请重新支持检查!");
+            List<string> editMParts = new List<string>();
+
+            Item mpp_part = innovator.newItem("mpp_ProcessPlanProducedPart", "get");
+            mpp_part.setProperty("source_id", mpp_id);
+            mpp_part.setAttribute("select", "related_id(keyed_name,state,major_rev,config_id)");
+            mpp_part = mpp_part.apply();
+            if (mpp_part.getItemCount() < 1)
+            {
+                return innovator.newError(CstrErrMessage);
+            }
+            Item part = mpp_part.getRelatedItem();
+            Item mpart = getMPart(part,location_id);
+            if (mpart.getItemCount() != 1)
+            {
+                return innovator.newError(CstrErrMessage);
+            }
+
+            try
+            {
+                Item updateMParts = CheckBomStatus(part, mpart, location_id, rowItems, ref editMParts);
+                updateMParts = updateMParts.apply();
+                return updateMParts;
+            }
+            catch (Exception ex)
+            {
+                return innovator.newError(ex.Message);
+            }
+        }
+
+        private Item CheckBomStatus(Item part, Item parentMPart,string location_id,Item rowItems,ref List<string> editMParts)
+        {
+            string aml = "<AML><Item type='mpp_ProcessPlan' action='get' select='id'>" +
+                "<Relationships>" +
+                "<Item type='mpp_ProcessPlanProducedPart' select='id' action='get'>" +
+                "<related_id>" + part.getID() + "</related_id>" +
+                "</Item>" +
+                "<Item type='mpp_ProcessPlanLocation' select='id' action='get'>" +
+                "<related_id>" + location_id + "</related_id>" +
+                "</Item>" +
+                "</Relationships>" +
+                "</Item>" +
+                "</AML>";
+            Item mpp = innovator.applyAML(aml);
+            if (mpp.getItemCount() > 1)
+            {
+                throw new Exception(CstrErrMessage);
+            }
+            else if (mpp.getItemCount() < 1)
+            {
+                return parentMPart;
+            }
+            aml = "<AML><Item type='mpp_Operation' action='get' select='id'>" +
+                "<source_id>" + mpp.getID() + "</source_id>" +
+                "<bcs_location>" + location_id + "</bcs_location>" +
+                "<Relationships>" +
+                "<Item type='mpp_OperationConsumedPart' select='quantity,related_id(keyed_name,state,major_rev,config_id)'>" +
+                "<bcs_location>" + location_id + "</bcs_location>" +
+                "</Item>" +
+                "</Relationships>" +
+                "</Item>" +
+                "</AML>";
+            Item mpp_operations = innovator.applyAML(aml);
+            if (mpp_operations.getItemsByXPath("//Item[@type='Part']").getItemCount() > 0)
+            {
+                parentMPart.setAction("edit");
+            }
+            for (int i = 0; i < mpp_operations.getItemCount(); i++)
+            {
+                Item mpp_operation = mpp_operations.getItemByIndex(i);
+                Item operation_parts = mpp_operation.getRelationships();
+                for (int j = 0; j < operation_parts.getItemCount(); j++)
+                {
+                    Item operation_rel = operation_parts.getItemByIndex(j);
+                    Item operation_part = operation_rel.getRelatedItem();
+
+                    Item mpart = getMPart(operation_part,location_id);
+                    if (mpart.getItemCount() != 1)
+                    {
+                        throw new Exception(CstrErrMessage);
+                    }
+
+                    Item mbom = innovator.newItem("MPart bom", "get");
+                    mbom.setProperty("source_id", parentMPart.getID());
+                    mbom.setProperty("related_id", mpart.getID());
+
+                    Item findRowItem = rowItems.getItemsByXPath("//Item[@op_part_id='" + operation_rel.getID() + "']");
+                    if (findRowItem.getItemCount() > 0)
+                    {
+                        if (findRowItem.getItemByIndex(0).getAttribute("checked", "false") == "false")
+                        {
+                            continue;
+                        }
+                        string mbom_id = findRowItem.getItemByIndex(0).getAttribute("mbom_id", "");
+                        if (mbom_id != "")
+                        {
+                            mbom.setProperty("id", mbom_id);
+                        }
+                    }
+                    else
+                    {
+                        continue;
+                    }
+
+                    mbom = mbom.apply();
+                    Item newmbom;
+                    if (mbom.getItemCount() < 1)
+                    {
+                        newmbom = innovator.newItem("MPart bom", "add");
+                    }
+                    else if (mbom.getItemCount() > 1)
+                    {
+                        throw new Exception(CstrErrMessage); 
+                    }
+                    else
+                    {
+                        newmbom = mbom;
+                        newmbom.setAction("edit");
+                    }
+                    newmbom.setProperty("quantity", operation_rel.getProperty("quantity", "0"));
+
+                    if (!editMParts.Contains(mpart.getID()))
+                    {
+                        Item updateMPart = CheckBomStatus(operation_part, mpart,location_id,rowItems,ref editMParts);
+                        newmbom.setRelatedItem(updateMPart);
+                        editMParts.Add(updateMPart.getID());
+                    }
+                    else
+                    {
+                        newmbom.setProperty("related_id", mpart.getID());
+                    }
+
+                    parentMPart.addRelationship(newmbom);
+                }
+            }
+            return parentMPart;
+        }
+
+        private Item getMPart(Item part,string location_id)
+        {
+            Item mpart = innovator.newItem("MPart", "get");
+            mpart.setAttribute("select", "id");
+            mpart.setProperty("bcs_location", location_id);
+            Item searchPart = innovator.newItem("Part");
+            searchPart.setProperty("config_id", part.getProperty("config_id"));
+            mpart.setPropertyItem("bcs_part", searchPart);
+            return mpart.apply();
+        }
+
+        public Item PBOM2MBOMCheck(Item controlItem)
+        {
+            if (CheckLicense() == false)
+            {
+                return Cinn.newError(CstrErrMessage);
+            }
+
+            StringBuilder gridStyle = new StringBuilder();
+
+            bool allright = true;
+
+            string ItemTypeID = innovator.getItemByKeyedName("ItemType", "MPart").getID();
+            string mpp_id = controlItem.getID();
+            string location_id = controlItem.getProperty("location");
+            Item oldRowItem = controlItem.getPropertyItem("rowitem");
+
+            gridStyle.Append(controlItem.getProperty("gridheaderxml"));
+
+            Item mpp_part = innovator.newItem("mpp_ProcessPlanProducedPart", "get");
+            mpp_part.setProperty("source_id", mpp_id);
+            mpp_part.setAttribute("select", "related_id(keyed_name,state,major_rev,config_id)");
+            mpp_part = mpp_part.apply();
+            if (mpp_part.getItemCount() < 1)
+            {
+                return innovator.newError("当前MPP未选取物料!");
+            }
+            Item rowItem = CheckBomStatus(mpp_part.getRelatedItem(), null, 0, null, 0,oldRowItem,ref gridStyle,location_id,ItemTypeID,ref allright);
+
+            gridStyle.Append("</table>");
+
+            Item result = innovator.newItem("any");
+            result.setProperty("gridxml", gridStyle.ToString());
+            result.setProperty("checkstatus", allright.ToString());
+            result.setPropertyItem("rowitem", rowItem);
+            return result;
+        }
+
+        private Item CheckBomStatus(Item part, Item parentMPart, int level, Item parentOperation_rel, int parentMbomCount,Item oldRowItem, ref StringBuilder gridStyle,string location_id,string ItemTypeID,ref bool allright)
+        {
+            string action = "";
+            string rowId = innovator.getNewID();
+            string mbomOrder = "";
+            int mbomCount = 0;
+
+            Item rowItem = innovator.newItem("any");
+            rowItem.setAttribute("rowid", rowId);
+            rowItem.setAttribute("part_id", part.getID());
+
+            int error_code = 0;
+            Item mpart = getMPart(part,location_id);
+            if (mpart.getItemCount() < 1)
+            {
+                error_code = 1;
+            }
+            else if (mpart.getItemCount() > 1)
+            {
+                error_code = 2;
+            }
+            else
+            {
+                Item mboms = innovator.newItem("MPart BOM", "get");
+                mboms.setAttribute("select", "id,sort_order,related_id");
+                mboms.setProperty("source_id", mpart.getID());
+                mboms = mboms.apply();
+                mbomCount = mboms.getItemCount();
+
+                if (parentMPart != null)
+                {
+                    if (parentMPart.getItemCount() == 1)
+                    {
+                        mboms = innovator.newItem("MPart BOM", "get");
+                        mboms.setAttribute("select", "id,sort_order,related_id");
+                        mboms.setProperty("source_id", parentMPart.getID());
+                        mboms.setProperty("related_id", mpart.getID());
+                        if (oldRowItem != null)
+                        {
+                            Item oldMbom = oldRowItem.getItemsByXPath("//Item[@op_part_id='" + parentOperation_rel.getID() + "']");
+                            if (oldMbom.getItemCount() > 0)
+                            {
+                                string mbom_id = oldMbom.getItemByIndex(0).getAttribute("mbom_id", "");
+                                if (mbom_id != "")
+                                {
+                                    mboms.setProperty("id", mbom_id);
+                                }
+                            }
+                        }
+                        mboms = mboms.apply();
+                        int count = mboms.getItemCount();
+                        if (count == 1)
+                        {
+                            mbomOrder = mboms.getProperty("sort_order", "");
+                            rowItem.setAttribute("mbom_id", mboms.getID());
+                            action = "更新";
+                        }
+                        else if (count > 1)
+                        {
+                            string mbom_ids = mboms.getItemByIndex(0).getID();
+                            for (int m = 1; m < count; m++)
+                            {
+                                mbom_ids += "," + mboms.getItemByIndex(m).getID();
+                            }
+                            rowItem.setAttribute("mbom_ids", mbom_ids);
+
+                            error_code = 3;
+                            action = "更新";
+                        }
+                        else
+                        {
+                            action = "新增";
+                        }
+                    }
+                }
+                rowItem.setAttribute("mpart_id", mpart.getID());
+            }
+
+            AddTr(part, rowId, level,ref gridStyle);
+
+            string aml = "<AML><Item type='mpp_ProcessPlan' action='get' select='id'>" +
+                "<Relationships>" +
+                "<Item type='mpp_ProcessPlanProducedPart' select='id' action='get'>" +
+                "<related_id>" + part.getID() + "</related_id>" +
+                "</Item>" +
+                "<Item type='mpp_ProcessPlanLocation' select='id' action='get'>" +
+                "<related_id>" + location_id + "</related_id>" +
+                "</Item>" +
+                "</Relationships>" +
+                "</Item>" +
+                "</AML>";
+            Item mpp = innovator.applyAML(aml);
+            if (mpp.getItemCount() < 1)
+            {
+                AddTds(part, mpart, parentOperation_rel, mbomOrder, error_code, action, rowItem, parentMbomCount,oldRowItem,ref allright, ref gridStyle);
+                gridStyle.Append("</tr>");
+                rowItem.setAttribute("error_code", error_code.ToString());
+                return rowItem;
+            }
+            else if (mpp.getItemCount() > 1)
+            {
+                error_code = 4;
+                AddTds(part, mpart, parentOperation_rel, mbomOrder, error_code, action, rowItem, parentMbomCount,oldRowItem,ref allright, ref gridStyle);
+                gridStyle.Append("</tr>");
+                rowItem.setAttribute("error_code", error_code.ToString());
+                return rowItem;
+            }
+
+            aml = "<AML><Item type='mpp_Operation' action='get' select='id'>" +
+                "<source_id>" + mpp.getID() + "</source_id>" +
+                "<bcs_location>" + location_id + "</bcs_location>" +
+                "<Relationships>" +
+                "<Item type='mpp_OperationConsumedPart' select='quantity,related_id(keyed_name,state,major_rev,config_id)'>" +
+                "<bcs_location>" + location_id + "</bcs_location>" +
+                "</Item>" +
+                "</Relationships>" +
+                "</Item>" +
+                "</AML>";
+            Item mpp_operations = innovator.applyAML(aml);
+            if (mpp_operations.getItemsByXPath("//Item[@type='Part']").getItemCount() > 0)
+            {
+                if (mpart.getItemCount() == 1)
+                {
+                    if (!canUpdate(mpart.getID(), ItemTypeID))
+                    {
+                        error_code = 5;
+                    }
+                }
+            }
+
+            AddTds(part, mpart, parentOperation_rel, mbomOrder, error_code, action, rowItem, parentMbomCount,oldRowItem,ref allright, ref gridStyle);
+
+            for (int i = 0; i < mpp_operations.getItemCount(); i++)
+            {
+                Item mpp_operation = mpp_operations.getItemByIndex(i);
+                Item operation_parts = mpp_operation.getRelationships();
+                for (int j = 0; j < operation_parts.getItemCount(); j++)
+                {
+                    Item operation_rel = operation_parts.getItemByIndex(j);
+                    Item operation_part = operation_rel.getRelatedItem();
+                    Item subRowItem = CheckBomStatus(operation_part, mpart, level + 1, operation_rel, mbomCount,oldRowItem,ref gridStyle,location_id, ItemTypeID,ref allright);
+                    subRowItem.setAttribute("op_part_id", operation_rel.getID());
+                    rowItem.addRelationship(subRowItem);
+                }
+            }
+            gridStyle.Append("</tr>");
+
+            rowItem.setAttribute("error_code", error_code.ToString());
+            return rowItem;
+        }
+
+        private void AddTr(Item part, string rowId, int level,ref StringBuilder gridStyle)
+        {
+            gridStyle.Append("<tr level=\"");
+            gridStyle.Append(Escape(level.ToString()));
+            gridStyle.Append("\" icon0=\"../images/Part.svg\" icon1=\"../images/Part.svg\" id=\"" + rowId + "\"><userdata key=\"gridData_rowItemID\" value=\"");
+            gridStyle.Append(part.getID());
+            gridStyle.Append("\" />");
+        }
+
+        private void AddTds(Item part, Item mpart, Item operation_rel, string mbomOrder, int error_code, string action, Item rowItem, int parentMbomCount, Item oldRowItem,ref bool allright, ref StringBuilder gridStyle)
+        {
+            string error_string = "";
+            string qty = "";
+            string color = "";
+            string image = "";
+            string mpart_id = "";
+            string mpart_keyedName = "";
+            string is_checked = "false";
+
+            if (oldRowItem != null && operation_rel != null)
+            {
+                Item oldMbom = oldRowItem.getItemsByXPath("//Item[@op_part_id='" + operation_rel.getID() + "']");
+                if (oldMbom.getItemCount() > 0)
+                {
+                    is_checked = oldMbom.getItemByIndex(0).getAttribute("checked", "false");
+                    if (is_checked == "false")
+                    {
+                        error_code = 0;
+                    }
+                }
+            }
+            else
+            {
+                if (parentMbomCount < 1)
+                {
+                    is_checked = "true";
+                }
+                else
+                {
+                    is_checked = "false";
+                }
+            }
+
+            if (error_code != 0)
+            {
+                allright = false;
+                color = "#ffedf0";
+                image = Escape("<img src=\"../images/Blocked.svg\" />");
+            }
+
+            switch (error_code)
+            {
+                case 1:
+                    error_string = "无对应MPart!";
+                    break;
+                case 2:
+                    error_string = "同一物料同一地区对应了多个MPart!";
+                    break;
+                case 3:
+                    error_string = "MBOM中有重复子阶!";
+                    break;
+                case 4:
+                    error_string = "物料同一地区有多个MPP!";
+                    break;
+                case 5:
+                    error_string = "无编辑权限!";
+                    break;
+            }
+            if (mpart.getItemCount() == 1)
+            {
+                mpart_id = mpart.getID();
+                mpart_keyedName = mpart.getProperty("keyed_name");
+            }
+            if (operation_rel != null)
+            {
+                qty = operation_rel.getProperty("quantity", "0");
+            }
+
+            gridStyle.Append("<td bgColor=\"" + color + "\">" + part.getProperty("keyed_name") + "</td>");
+            gridStyle.Append("<td bgColor=\"" + color + "\">" + image + "</td>");
+            gridStyle.Append("<td bgColor=\"" + color + "\">" + part.getProperty("major_rev") + "</td>");
+            gridStyle.Append("<td bgColor=\"" + color + "\">" + part.getProperty("state") + "</td>");
+            gridStyle.Append("<td bgColor=\"" + color + "\">" + qty + "</td>");
+            gridStyle.Append("<td bgColor=\"" + color + "\">" + mbomOrder + "</td>");
+            gridStyle.Append("<td bgColor=\"" + color + "\" fdt=\"item\" link=\"'MPart','" + mpart_id + "'\">" + mpart_keyedName + "</td>");
+            gridStyle.Append("<td bgColor=\"" + color + "\">" + error_string + "</td>");
+            gridStyle.Append("<td bgColor=\"" + color + "\">" + action + "</td>");
+            gridStyle.Append("<td bgColor=\"" + color + "\">&lt;checkbox state=&apos;" + (is_checked == "true" ? "1" : "0") + "&apos;/&gt;</td>");
+
+            rowItem.setAttribute("checked", is_checked);
+        }
+
+        private bool canUpdate(string itemID,string ItemTypeID)
+        {
+            return bcsCCO.Permissions.GetPermissions(itemID, ItemTypeID, "can_update", null);
         }
 
         public System.Web.Script.Serialization.JavaScriptSerializer JSONSerializer = new System.Web.Script.Serialization.JavaScriptSerializer { MaxJsonLength = int.MaxValue };
