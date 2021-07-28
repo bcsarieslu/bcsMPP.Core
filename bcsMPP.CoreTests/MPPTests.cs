@@ -65,5 +65,22 @@ namespace bcsMPP.Core.Tests
             }
             return connection;
         }
+
+        [Test()]
+        public void updateRelationPQDTest()
+        {
+            HttpServerConnection connection = GetServerConnection();
+
+            Innovator inn = IomFactory.CreateInnovator(connection);
+
+            Item mppItem = inn.getItemById("mpp_ProcessPlan", "67905391B6AA4CD38F9A4AE3EB0AFAAB");
+
+            bcsMPP.Core.MPP bcsMPP = new bcsMPP.Core.MPP(inn);
+            Item result = bcsMPP.updateRelationPQD(mppItem);
+
+            connection.Logout();
+
+            Assert.Pass("");
+        }
     }
 }

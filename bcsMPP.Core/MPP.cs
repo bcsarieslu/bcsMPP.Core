@@ -767,6 +767,112 @@ namespace bcsMPP.Core
             return result;
         }
 
+        /// <summary>
+        /// MPP状态推动至Released时更新关联此MPP的PQD的工序
+        /// </summary>
+        /// <param name="mpp"></param>
+        /// <returns></returns>
+        public Item updateRelationPQD(Item mpp)
+        {
+            if (!CheckIsUsedPQD())
+            {
+                return mpp;
+            }
+
+            if (!CheckLicense())
+            {
+                return Cinn.newError(CstrErrMessage);
+            }
+
+            string mppConfigId = mpp.getProperty("config_id");
+            string mppId = mpp.getID();
+
+            //检查是否为初版MPP
+            Item result = innovator.applySQL($"select top 1 id from innovator.[mpp_processplan] where config_id='{mppConfigId}' and is_released='1'");
+            if (result.isError() || result.getItemCount() < 1)
+            {
+                return mpp;
+            }
+
+            //查询关联MPP的PQD
+            Item pqdItem = innovator.newItem("Process Quality Document", "get");
+            pqdItem.setAttribute("select", "id");
+
+            Item queryMppItem = innovator.newItem("mpp_ProcessPlan");
+            queryMppItem.setProperty("config_id", mppConfigId);
+            pqdItem.setPropertyItem("process_plan_id", queryMppItem);
+
+            Item pqdOPItems = pqdItem.createRelationship("PQD Operation", "get");
+            pqdOPItems.setAttribute("select", "id,bound_item_id");
+
+            pqdItem = pqdItem.apply();
+            if (pqdItem.isError() || pqdItem.getItemCount() != 1)
+            {
+                return mpp;
+            }
+
+            //更新PQD关联的MPP为最新版
+            result = innovator.applySQL($"update innovator.[process_quality_document] set process_plan_id='{mppId}' where id='{pqdItem.getID()}'");
+            if (result.isError())
+            {
+                return result;
+            }
+
+            pqdOPItems = pqdItem.getRelationships("PQD Operation");
+            int _count = pqdOPItems.getItemCount();
+            if (_count < 1)
+            {
+                return mpp;
+            }
+
+            //查询MPP的所有工序
+            Item mppOPItems = innovator.newItem("mpp_Operation", "get");
+            mppOPItems.setAttribute("select", "bcs_config_id,id");
+            mppOPItems.setProperty("source_id", mppId);
+            mppOPItems = mppOPItems.apply();
+            if (mppOPItems.getItemCount() < 1)
+            {
+                return mpp;
+            }
+
+            string boundItemId,pqdOPId,bcsConfigId;
+            for (int i = 0; i < _count; i++)
+            {
+                Item pqdOPItem = pqdOPItems.getItemByIndex(i);
+                pqdOPId = pqdOPItem.getID();
+                boundItemId = pqdOPItem.getProperty("bound_item_id","");
+                if (boundItemId == "")
+                {
+                    continue;
+                }
+
+                Item oldOPItem = innovator.newItem("mpp_Operation", "get");
+                oldOPItem.setAttribute("select", "bcs_config_id");
+                oldOPItem.setID(boundItemId);
+                oldOPItem = oldOPItem.apply();
+                if (oldOPItem.isError() || oldOPItem.getItemCount() < 1)
+                {
+                    continue;
+                }
+
+                bcsConfigId = oldOPItem.getProperty("bcs_config_id");
+                Item newOPItem = mppOPItems.getItemsByXPath($"//Item[bcs_config_id='{bcsConfigId}']");
+                if (newOPItem.getItemCount() < 1)
+                {
+                    continue;
+                }
+
+                result = innovator.applySQL($"update innovator.[pqd_operation] set bound_item_id='{newOPItem.getItemByIndex(0).getID()}' where id='{pqdOPId}'");
+                if (result.isError())
+                {
+                    return result;
+                }
+
+            }
+
+            return mpp;
+        }
+
         class ItemJson
         {
             public int uniqueId;
