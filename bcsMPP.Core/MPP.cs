@@ -437,7 +437,7 @@ namespace bcsMPP.Core
                     {
                         //Item methodItem = getItemById("APQP Controls Catalog", cmfMethodItem.Attributes["f"].Value, "control");
                         Item methodItem = innovator.newItem("APQP Controls Catalog");
-                        methodItem.setID(cmfMethodItem.Attributes["f"].Value);
+                        methodItem.setID(cmfMethodItem.Attributes["f"]?.Value?? cmfMethodItem.Attributes["d"].Value);
                         //使用PQD中的对象属性
                         XmlNode cmfMethodDescItem = cmfPQDdata.SelectSingleNode($"G[@e='PQD CM Description']/I[@k='{cmfMethodItem.Attributes["a"].Value}']");
                         methodItem.setProperty("control", cmfMethodDescItem.Attributes["l"].Value);
@@ -453,7 +453,7 @@ namespace bcsMPP.Core
                     {
                         //Item planItem = getItemById("APQP Reaction Plan Catalog", cmfPlanItem.Attributes["f"].Value, "reaction_plan");
                         Item planItem = innovator.newItem("APQP Reaction Plan Catalog");
-                        planItem.setID(cmfPlanItem.Attributes["f"].Value);
+                        planItem.setID(cmfPlanItem.Attributes["f"]?.Value?? cmfPlanItem.Attributes["d"].Value);
 
                         //使用PQD中的对象属性
                         XmlNode cmfPlanDescItem = cmfPQDdata.SelectSingleNode($"G[@e='PQD CM Reaction Plan']/I[@k='{cmfPlanItem.Attributes["a"].Value}']");
