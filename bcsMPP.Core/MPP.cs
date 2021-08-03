@@ -1154,7 +1154,7 @@ namespace bcsMPP.Core
         /// <returns>true:有使用 false:未使用</returns>
         private bool CheckIsUsedPQD()
         {
-            return !innovator.applyMethod("bcs_MPP_CheckPQDIsUsed", "").isError();
+            return !innovator.applyMethod("bcs_MPP_CheckMPPRelationMPP", "").isError();
         }
 
         private Item getItemById(string typeName, string itemId, string selectStr)
