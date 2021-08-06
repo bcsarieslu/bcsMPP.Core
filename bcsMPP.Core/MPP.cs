@@ -1156,7 +1156,7 @@ namespace bcsMPP.Core
         {
             try
             {
-                return !innovator.applyMethod("bcs_MPP_CheckMPPRelationMPP", "").isError();
+                return !innovator.applyMethod("bcs_MPP_CheckMPPRelationPQD", "").isError();
             }
             catch
             {
