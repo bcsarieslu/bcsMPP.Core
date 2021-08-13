@@ -188,7 +188,7 @@ namespace bcsMPP.Core
 					<Relationships>
 						<Item type='mpp_ProcessPlanProducedPart' select='related_id(" + customPartProperties + @",classification)'/>
 						<Item type='mpp_ProcessPlanLocation' select='related_id(name,item_number)'/>
-						<Item type='mpp_Operation' select='bcs_template,bcs_type,bcs_hours,bcs_location,keyed_name,name,sort_order" + propertys[0] + (withDetails ? ",wi_details,bcs_details" : String.Empty) + @"'" + (!string.IsNullOrEmpty(langCode) ? " language='" + langCode + "'" : string.Empty) + @" >"
+						<Item type='mpp_Operation' select='bcs_template,bcs_type,bcs_hours,bcs_location,keyed_name,name,sort_order,bcs_flow_height,bcs_flow_x,bcs_flow_y,bcs_is_flow,bcs_operation_image,bcs_flow_width" + propertys[0] + (withDetails ? ",wi_details,bcs_details" : String.Empty) + @"'" + (!string.IsNullOrEmpty(langCode) ? " language='" + langCode + "'" : string.Empty) + @" >"
                                 + bcs_location + @"
 							<Relationships>" +
                                     (withDetails ?
