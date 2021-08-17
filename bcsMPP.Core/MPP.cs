@@ -231,7 +231,7 @@ namespace bcsMPP.Core
             string _aml = "     <AML>" +
                           "       <Item type='Process Quality Document' action='get' id='{0}' select='id' >" +
                           "         <Relationships>" +
-                          "            <Item type='PQD Operation' action='get' select='reference_id, parent_reference_id, sort_order, bound_item_id, bound_item_config_id, tracking_mode, resolution_mode' />" +
+                          "            <Item type='PQD Process Step Element' action='get' select='reference_id, parent_reference_id, sort_order, bound_item_id, bound_item_config_id, tracking_mode, resolution_mode' />" +
                           "            <Item type='PQD EMT' action='get' select='reference_id, parent_reference_id, sort_order, bound_item_id, bound_item_config_id, tracking_mode, resolution_mode' />" +
                           "            <Item type='PQD EMT Description' action='get' select='element_reference_id, value, cmf_style, permission_id' />" +
                           "            <Item type='PQD Tool' action='get' select='reference_id, parent_reference_id, sort_order, bound_item_id, bound_item_config_id, tracking_mode, resolution_mode' />" +
@@ -269,7 +269,7 @@ namespace bcsMPP.Core
                 for (int j = 0; j < _opCount; j++)
                 {
                     Item operationItem = operationItems.getItemByIndex(j);
-                    XmlNode cmfOPItem = cmfPQDdata.SelectSingleNode($"G[@e='PQD Operation']/I[@f='{operationItem.getID()}']");
+                    XmlNode cmfOPItem = cmfPQDdata.SelectSingleNode($"G[@e='PQD Process Step Element']/I[@f='{operationItem.getID()}']");
                     if (cmfOPItem == null)
                     {
                         continue;
@@ -339,7 +339,7 @@ namespace bcsMPP.Core
             string _aml = "     <AML>" +
                           "       <Item type='Process Quality Document' action='get' id='{0}' select='id' >" +
                           "         <Relationships>" +
-                          "            <Item type='PQD Operation' action='get' select='reference_id, parent_reference_id, sort_order, bound_item_id, bound_item_config_id, tracking_mode, resolution_mode' />" +
+                          "            <Item type='PQD Process Step Element' action='get' select='reference_id, parent_reference_id, sort_order, bound_item_id, bound_item_config_id, tracking_mode, resolution_mode' />" +
                           "            <Item type='PQD EMT' action='get' select='reference_id, parent_reference_id, sort_order, bound_item_id, bound_item_config_id, tracking_mode, resolution_mode' />" +
                           "            <Item type='PQD EMT Description' action='get' select='element_reference_id, value, cmf_style, permission_id' />"+
                           "            <Item type='PQD Control Method' action='get' select='reference_id, parent_reference_id, sort_order, bound_item_id, bound_item_config_id, tracking_mode, resolution_mode' />" +
@@ -377,7 +377,7 @@ namespace bcsMPP.Core
             for (int j = 0; j < _opCount; j++)
             {
                 Item operationItem = operationItems.getItemByIndex(j);
-                XmlNode cmfOPItem = cmfPQDdata.SelectSingleNode($"G[@e='PQD Operation']/I[@f='{operationItem.getID()}']");
+                XmlNode cmfOPItem = cmfPQDdata.SelectSingleNode($"G[@e='PQD Process Step Element']/I[@f='{operationItem.getID()}']");
                 if (cmfOPItem == null)
                 {
                     continue;
@@ -802,7 +802,7 @@ namespace bcsMPP.Core
             queryMppItem.setProperty("config_id", mppConfigId);
             pqdItem.setPropertyItem("process_plan_id", queryMppItem);
 
-            Item pqdOPItems = pqdItem.createRelationship("PQD Operation", "get");
+            Item pqdOPItems = pqdItem.createRelationship("PQD Process Step Element", "get");
             pqdOPItems.setAttribute("select", "id,bound_item_id");
 
             pqdItem = pqdItem.apply();
@@ -818,7 +818,7 @@ namespace bcsMPP.Core
                 return result;
             }
 
-            pqdOPItems = pqdItem.getRelationships("PQD Operation");
+            pqdOPItems = pqdItem.getRelationships("PQD Process Step Element");
             int _count = pqdOPItems.getItemCount();
             if (_count < 1)
             {
