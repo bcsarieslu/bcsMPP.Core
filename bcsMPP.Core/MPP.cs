@@ -1060,7 +1060,7 @@ namespace bcsMPP.Core
         private Item getMPart(Item part,string location_id)
         {
             Item mpart = innovator.newItem("MPart", "get");
-            mpart.setAttribute("select", "id");
+            mpart.setAttribute("select", "id,keyed_name");
             mpart.setProperty("bcs_location", location_id);
             Item searchPart = innovator.newItem("Part");
             searchPart.setProperty("config_id", part.getProperty("config_id"));
