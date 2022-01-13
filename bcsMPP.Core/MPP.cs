@@ -578,6 +578,9 @@ namespace bcsMPP.Core
 
             Innovator inn = mpp.getInnovator();
             int uniqueId = 0;
+            var bcs_ProcessflowNumber = inn.getItemByKeyedName("UserMessage", "bcs_ProcessflowNumber");
+            var bcs_ProcessflowName = inn.getItemByKeyedName("UserMessage", "bcs_ProcessflowName");
+            var bcs_ProcessflowHours = inn.getItemByKeyedName("UserMessage", "bcs_ProcessflowHours");
 
             StringBuilder gridStyle = new StringBuilder();
             gridStyle.Append("<?xml version='1.0' encoding='utf-8'?>");
@@ -598,9 +601,9 @@ namespace bcsMPP.Core
             gridStyle.Append(" xmlns:aras='http://www.aras.com'");
             gridStyle.Append(" xmlns:usr='urn:the-xml-files:xslt'>");
             gridStyle.Append(" <thead>");
-            gridStyle.Append("  <th align='c'>Number</th>");
-            gridStyle.Append("  <th align='c'>Name</th>");
-            gridStyle.Append("  <th align='c'>Hours</th>");
+            gridStyle.Append($"  <th align='c'>{bcs_ProcessflowNumber.getProperty("text","")}</th>");
+            gridStyle.Append($"  <th align='c'>{bcs_ProcessflowName.getProperty("text","")}</th>");
+            gridStyle.Append($"  <th align='c'>{bcs_ProcessflowHours.getProperty("text", "")}</th>");
             gridStyle.Append(" </thead>");
             gridStyle.Append(" <columns>");
             gridStyle.Append("  <column width='260' edit='NOEDIT' align='l' order='10' colname='c_item_number_mbom'/>");
